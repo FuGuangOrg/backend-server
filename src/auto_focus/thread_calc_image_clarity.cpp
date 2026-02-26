@@ -1,66 +1,77 @@
-﻿#include "thread_calc_image_clarity.h"
+#include "thread_calc_image_clarity.h"
 #include "../basic_algorithm/common_api.h"
 #include <QDebug>
 #include <QDir>
-#include <QVariant>
+#include <QDateTime>
 #include <QCoreApplication>
 
 #include "../common/common.h"
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
-thread_calc_image_clarity::thread_calc_image_clarity(const QString& name, QObject* parent)
-    : QThread(parent), m_name(name), m_running(true)
+thread_calc_image_clarity::thread_calc_image_clarity(const QString& name, QObject* /*parent*/)
+    : m_name(name), m_running(false)
 {
-
 }
 
 thread_calc_image_clarity::~thread_calc_image_clarity()
 {
     stop();
-    wait(); // 等待线程结束
+    if (m_thread.joinable())
+        m_thread.join();
+}
+
+void thread_calc_image_clarity::start()
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_running = true;
+    }
+    m_thread = std::thread([this] { run(); });
 }
 
 void thread_calc_image_clarity::add_image(const QString& camera_id, const QImage& image_data)
 {
-    //cv::Mat mat = convert_qimage_to_cvmat(image_data,1);
     {
-        QMutexLocker locker(&m_mutex);
-        m_task_images.enqueue(st_task_image_data(camera_id, image_data));
+        std::lock_guard<std::mutex> locker(m_mutex);
+        m_task_images.push(st_task_image_data(camera_id, image_data));
     }
-    m_wait_condition.wakeOne();
+    m_wait_condition.notify_one();
 }
 
 int thread_calc_image_clarity::task_image_count()
 {
-    QMutexLocker locker(&m_mutex);
-	return static_cast<int>(m_task_images.size());
+    std::lock_guard<std::mutex> locker(m_mutex);
+    return static_cast<int>(m_task_images.size());
 }
 
 void thread_calc_image_clarity::stop()
 {
-    QMutexLocker locker(&m_mutex);
-    m_running = false;
-    m_wait_condition.wakeAll();
+    {
+        std::lock_guard<std::mutex> locker(m_mutex);
+        m_running = false;
+    }
+    m_wait_condition.notify_all();
 }
 
 void thread_calc_image_clarity::run()
 {
     while (true)
     {
-        st_task_image_data task_image("",QImage());
+        st_task_image_data task_image("", QImage());
         {
-            QMutexLocker locker(&m_mutex);
-            if (!m_running && m_task_images.isEmpty())
+            std::unique_lock<std::mutex> locker(m_mutex);
+            if (!m_running && m_task_images.empty())
                 break;
 
-            if (m_task_images.isEmpty())
-                m_wait_condition.wait(&m_mutex);
+            if (m_task_images.empty())
+                m_wait_condition.wait(locker);
 
-            if (!m_task_images.isEmpty())
+            if (!m_task_images.empty())
             {
                 m_calculate_finish.store(false);
-                task_image = m_task_images.dequeue();
+                task_image = m_task_images.front();
+                m_task_images.pop();
             }
             else
             {
@@ -92,8 +103,8 @@ bool thread_calc_image_clarity::reset_calculate_image_clarity(const std::vector<
     }
 
     {
-        QMutexLocker locker(&m_mutex);
-        m_task_images.clear();
+        std::lock_guard<std::mutex> locker(m_mutex);
+        while (!m_task_images.empty()) m_task_images.pop();
     }
     return true;
 }
@@ -112,9 +123,9 @@ void thread_calc_image_clarity::process_task(const st_task_image_data& image_dat
     {
         process_clarity_calibration_task(image_data);
     }
-	else if (m_task_type == TASK_PIXEL_ADJUSTMENT)
+    else if (m_task_type == TASK_PIXEL_ADJUSTMENT)
     {
-		process_pixel_adjustment_task(image_data);
+        process_pixel_adjustment_task(image_data);
     }
 }
 
@@ -125,25 +136,21 @@ void thread_calc_image_clarity::process_calc_image_clarity_task(const st_task_im
         m_calculate_finish.store(true);
         return;
     }
-    //其他相机，不可能出现
     int camera_index = get_camera_index(image_data.m_camera_id);
     if (camera_index == -1)
     {
         m_calculate_finish.store(true);
         return;
     }
-    //数据异常，不可能出现
     if (image_data.m_image.isNull())
     {
         m_calculate_finish.store(true);
         return;
     }
-    //当前相机拍摄的影像参与计算的帧数加一
     if (m_calc_frame_count.contains(image_data.m_camera_id))
     {
         m_calc_frame_count[image_data.m_camera_id]++;
     }
-    //如果所有相机的计算帧数都达到最大帧数，标记计算完成
     {
         bool finish(true);
         for (QMap<QString, int>::iterator iter = m_calc_frame_count.begin(); iter != m_calc_frame_count.end(); ++iter)
@@ -174,7 +181,6 @@ void thread_calc_image_clarity::process_calc_image_clarity_task(const st_task_im
     {
         m_calc_frame_attenuation_times[image_data.m_camera_id]++;
     }
-    //当所有相机的无增长次数都达到阈值时，不再计算
     int attenuation_time(m_attenuation_time_thresh + 1);
     for (QMap<QString, int>::iterator iter = m_calc_frame_attenuation_times.begin(); iter != m_calc_frame_attenuation_times.end(); ++iter)
     {
@@ -200,25 +206,21 @@ void thread_calc_image_clarity::process_clarity_calibration_task(const st_task_i
         m_calculate_finish.store(true);
         return;
     }
-    //其他相机，不可能出现
     int camera_index = get_camera_index(image_data.m_camera_id);
     if (camera_index == -1)
     {
         m_calculate_finish.store(true);
         return;
     }
-    //数据异常，不可能出现
     if (image_data.m_image.isNull())
     {
         m_calculate_finish.store(true);
         return;
     }
-    //当前相机拍摄的影像参与计算的帧数加一
     if (m_calc_frame_count.contains(image_data.m_camera_id))
     {
         m_calc_frame_count[image_data.m_camera_id]++;
     }
-    //如果所有相机的计算帧数都达到最大帧数，标记计算完成
     {
         bool finish(true);
         for (QMap<QString, int>::iterator iter = m_calc_frame_count.begin(); iter != m_calc_frame_count.end(); ++iter)
@@ -237,27 +239,23 @@ void thread_calc_image_clarity::process_clarity_calibration_task(const st_task_i
         }
     }
     cv::Mat image = convert_qimage_to_cvmat(image_data.m_image, 1);
-
     cv::Mat image_ovr;
     cv::resize(image, image_ovr, cv::Size(), m_frame_scale_size, m_frame_scale_size, cv::INTER_AREA);
     double clarity = calc_image_clarity_multiscale(image_ovr);
-    //执行粗定位
     if (clarity >= m_clarity_thresh[image_data.m_camera_id] &&
         m_camera_fiber_end[image_data.m_camera_id].size() < 1)
     {
         cv::Mat image_rgb = convert_qimage_to_cvmat(image_data.m_image, 3);
         m_camera_fiber_end[image_data.m_camera_id] = m_object_detector->detect_objects(image_rgb);
-        if (m_camera_fiber_end[image_data.m_camera_id].size() < 1)       //粗定位失败
+        if (m_camera_fiber_end[image_data.m_camera_id].size() < 1)
         {
             m_calculate_finish.store(true);
             return;
         }
         else
         {
-            //当前影像的端面位置记录于 m_camera_fiber_end[image_data.m_camera_id]，按照从左到右排序并外扩 80 像素
             std::vector<st_detect_box>& fiber_ends = m_camera_fiber_end[image_data.m_camera_id];
             std::sort(fiber_ends.begin(), fiber_ends.end(), st_detect_box::sort_by_x0);
-            //尺寸约束:如果粗定位结果不是预期尺寸，或者与边缘重合，移除该结果
             for (int i = fiber_ends.size() - 1; i >= 0; i--)
             {
                 double box_width = fiber_ends[i].m_x1 - fiber_ends[i].m_x0;
@@ -274,7 +272,6 @@ void thread_calc_image_clarity::process_clarity_calibration_task(const st_task_i
                     continue;
                 }
             }
-            //对粗定位结果外扩，确保包含完整端面
             for (size_t i = 0; i < fiber_ends.size(); i++)
             {
                 fiber_ends[i].m_x0 = std::max(0.0, fiber_ends[i].m_x0 - m_object_expand);
@@ -284,7 +281,6 @@ void thread_calc_image_clarity::process_clarity_calibration_task(const st_task_i
             }
         }
     }
-    //需要所有相机都执行完粗定位才能进行后续计算
     if (m_total_fiber_end_count == 0)
     {
         for (QMap<QString, std::vector<st_detect_box>>::iterator iter = m_camera_fiber_end.begin(); iter != m_camera_fiber_end.end(); ++iter)
@@ -300,7 +296,6 @@ void thread_calc_image_clarity::process_clarity_calibration_task(const st_task_i
         m_focus_image_claritys.assign(m_total_fiber_end_count, 0.0);
         m_attenuation_times.assign(m_total_fiber_end_count, 0);
     }
-    //现在所有的端面区域记录于 m_camera_fiber_end[image_data.m_camera_id]，计算清晰度
     std::vector<st_detect_box>& fiber_ends = m_camera_fiber_end[image_data.m_camera_id];
     int start_index = get_start_index(image_data.m_camera_id);
     for (size_t i = 0; i < fiber_ends.size(); i++)
@@ -320,9 +315,6 @@ void thread_calc_image_clarity::process_clarity_calibration_task(const st_task_i
 
 void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data& image_data)
 {
-    //write_log(l(QString("process_auto_focus_task...... %1").arg(frame_id)).c_str());
-    //frame_id++;
-    // 已经计算完成，或者达到最大帧数，或者粗定位失败
     if (m_finished.load() || m_processed_max_frame_count.load())
     {
         m_calculate_finish.store(true);
@@ -333,20 +325,18 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
         m_calculate_finish.store(true);
         return;
     }
-    // 其他相机，不可能出现
     int camera_index = get_camera_index(image_data.m_camera_id);
     if (camera_index == -1)
     {
         m_calculate_finish.store(true);
         return;
     }
-    // 数据异常，不可能出现
     if (image_data.m_image.isNull())
     {
         m_calculate_finish.store(true);
         return;
     }
-    if (m_save_cache)   //调试功能，保存所有影像数据
+    if (m_save_cache)
     {
         QString current_directory = QCoreApplication::applicationDirPath();
         QString dir = current_directory + L("/Temp");
@@ -362,35 +352,28 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
         }
     }
 
-    // 当前相机没有端面，先进行粗定位获得端面数量
     cv::Mat image = convert_qimage_to_cvmat(image_data.m_image, 1);
     cv::Rect rect;
     rect.x = image.cols * 0.375;
     rect.y = image.cols * 0;
-	rect.width = image.cols * 0.25;
-	rect.height = image.rows;
-	cv::Mat image_roi = image(rect);
+    rect.width = image.cols * 0.25;
+    rect.height = image.rows;
+    cv::Mat image_roi = image(rect);
     if (m_camera_fiber_end.contains(image_data.m_camera_id) && m_camera_fiber_end[image_data.m_camera_id].size() < 1)
     {
-        //需要粗定位，但是如果之前粗定位失败，这里不再执行
         if (m_camera_position_fail[image_data.m_camera_id])
         {
             m_calculate_finish.store(true);
             return;
         }
-        //cv::Mat image_ovr;
-        //cv::resize(image, image_ovr, cv::Size(), m_frame_scale_size, m_frame_scale_size, cv::INTER_AREA);
-        //double clarity = calc_image_clarity_bandpass(image_ovr, cv::Mat(), 0.3, 0.4, 2.0);
         double clarity = calc_image_clarity(image);
-        //write_log(l(QString("clarity = %1").arg(clarity)).c_str());
         if (clarity > m_calc_frame_max_clarity[image_data.m_camera_id] * 0.8)
         {
             cv::Mat image_rgb = convert_qimage_to_cvmat(image_data.m_image, 3);
             m_camera_fiber_end[image_data.m_camera_id] = m_object_detector->detect_objects(image_rgb);
-            if (m_camera_fiber_end[image_data.m_camera_id].size() < 1)       //粗定位失败
+            if (m_camera_fiber_end[image_data.m_camera_id].size() < 1)
             {
                 m_camera_position_fail[image_data.m_camera_id] = true;
-                //检查是否所有相机都定位失败,如果所有相机都粗定位失败，不再处理
                 bool object_detect_fail(true);
                 for (QMap<QString, bool>::iterator iter = m_camera_position_fail.begin(); iter != m_camera_position_fail.end(); ++iter)
                 {
@@ -409,10 +392,8 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
             }
             else
             {
-                //当前影像的端面位置记录于 m_camera_fiber_end[image_data.m_camera_id]，按照从左到右排序并外扩 80 像素
                 std::vector<st_detect_box>& fiber_ends = m_camera_fiber_end[image_data.m_camera_id];
                 std::sort(fiber_ends.begin(), fiber_ends.end(), st_detect_box::sort_by_x0);
-                //对粗定位结果外扩，确保包含完整端面
                 for (int i = 0; i < fiber_ends.size(); i++)
                 {
                     fiber_ends[i].m_x0 = std::max(0.0, fiber_ends[i].m_x0 - m_object_expand);
@@ -420,8 +401,6 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
                     fiber_ends[i].m_x1 = std::min(static_cast<double>(image.cols - 1), fiber_ends[i].m_x1 + m_object_expand);
                     fiber_ends[i].m_y1 = std::min(static_cast<double>(image.rows - 1), fiber_ends[i].m_y1 + m_object_expand);
                 }
-                //尺寸约束:如果粗定位结果不是预期尺寸，或者与边缘重合，移除该结果
-                //位置约束:修改了需求，只获取居中的指定数量端面，超出范围的不处理
                 for (int i = fiber_ends.size() - 1; i >= 0; i--)
                 {
                     double box_width = fiber_ends[i].m_x1 - fiber_ends[i].m_x0;
@@ -437,7 +416,6 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
                         fiber_ends.erase(fiber_ends.begin() + i);
                         continue;
                     }
-                    //端面 X 轴位置需要在 [m_adjustment_x_min,m_adjustment_x_max]范围内
                     if (fiber_ends[i].m_x0 < m_adjustment_x_min - box_width * 0.8)
                     {
                         fiber_ends.erase(fiber_ends.begin() + i);
@@ -449,18 +427,11 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
                         continue;
                     }
                 }
-                //中间部分可能存在定位失败的情况，尝试补充
                 predict_missing(fiber_ends);
                 if (fiber_ends.size() > 0 && image_data.m_camera_id == m_camera_ids[0])
                 {
                     m_max_position = static_cast<int>(fiber_ends.back().m_x1);
                 }
-            }
-            if (0)
-            {
-                //测试保存数据
-                std::string path = l(QString("C:/Temp/%1_%2.png").arg(image_data.m_camera_id).arg(clarity));
-                cv::imwrite(path, image);
             }
         }
         else
@@ -469,7 +440,6 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
             return;
         }
     }
-    //需要所有相机都执行完粗定位才能进行后续计算
     if (m_total_fiber_end_count == 0)
     {
         for (QMap<QString, std::vector<st_detect_box>>::iterator iter = m_camera_fiber_end.begin(); iter != m_camera_fiber_end.end(); ++iter)
@@ -486,13 +456,11 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
         m_finished_flags.assign(m_total_fiber_end_count, false);
         m_focus_image_claritys.assign(m_total_fiber_end_count, 0.0);
         m_attenuation_times.assign(m_total_fiber_end_count, 0);
-        m_cache_images.initialize(m_total_fiber_end_count,15);
+        m_cache_images.initialize(m_total_fiber_end_count, 15);
     }
-    //现在所有的端面区域记录于 m_camera_fiber_end[image_data.m_camera_id]
     std::vector<st_detect_box>& fiber_ends = m_camera_fiber_end[image_data.m_camera_id];
-    std::vector<double> clarity_values(fiber_ends.size(), 0.0);         //临时数组保存每个子区域的清晰度结果
+    std::vector<double> clarity_values(fiber_ends.size(), 0.0);
     int start_index = get_start_index(image_data.m_camera_id);
-    // 计算每个子区域清晰度
 #pragma omp parallel for num_threads(8)
     for (int i = 0; i < fiber_ends.size(); i++)
     {
@@ -507,10 +475,8 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
         cv::Rect roi(x0, y0, x1 - x0, y1 - y0);
         cv::Mat sub_img = image(roi);
         cv::resize(sub_img, sub_img, cv::Size(), 0.5, 0.5, cv::INTER_AREA);
-        //clarity_values[i] = calc_image_clarity_multiscale(sub_img);
         clarity_values[i] = calc_image_clarity_bandpass(sub_img, cv::Mat(), 0.3, 0.4, 2.0);
     }
-    // 更新每个子区域的清晰度信息，同时保存第一个端面最清晰的影像
     QString save_path = QString("%1/%2_%3.png").arg(m_save_dir).arg(image_data.m_camera_id).arg(m_save_index);
     if (!m_save_images.contains(save_path))
     {
@@ -520,7 +486,6 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
     {
         if (m_finished_flags[start_index + i])
         {
-            /***********************即便找到最清晰局部影像，也要缓存后续若干帧**************************/
             if(m_cache_images.m_finished_count[start_index+i] < m_cache_images.m_cache_size)
             {
                 st_focus_image focus_image = generate_focus_image_from_detect_box(image, fiber_ends[i]);
@@ -530,24 +495,22 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
         }
         st_focus_image focus_image = generate_focus_image_from_detect_box(image, fiber_ends[i]);
         double value = clarity_values[i];
-        // 若比历史最大值更清晰，则更新最清晰影像
         if (value > m_focus_image_claritys[start_index + i])
         {
             m_focus_image_claritys[start_index + i] = value;
             m_attenuation_times[start_index + i] = 0;
             m_focus_images[start_index + i] = focus_image;
             m_cache_images.add_cache_image(start_index + i, focus_image.m_focus_image, false);
-			m_cache_images.set_finished_count(start_index + i, 0);          //清晰度有更新，重置缓存完成计数以及索引
+            m_cache_images.set_finished_count(start_index + i, 0);
             if (i == 0)
             {
                 m_save_images[save_path] = image.clone();
             }
         }
-        else  //累计无增长次数
+        else
         {
             m_cache_images.add_cache_image(start_index + i, focus_image.m_focus_image, true);
             m_attenuation_times[start_index + i] += 1;
-            //如果无增长次数达到一定次数，或者当前清晰度比最大清晰度大于差值阈值，认为已经找到最清晰影像
             if (value < m_focus_image_claritys[start_index + i] - m_clarity_diff_thresh ||
                 m_attenuation_times[start_index + i] >= m_attenuation_time_thresh)
             {
@@ -556,60 +519,32 @@ void thread_calc_image_clarity::process_auto_focus_task(const st_task_image_data
             }
         }
     }
-	if (0)       //这里判定结束的条件不再是对焦是否完成，而是缓存是否完成
+    if(m_cache_images.cache_finished())
     {
-        if (all_finished())
-        {
-            m_finished.store(true);
-        }
+        m_finished.store(true);
     }
-	else
-	{
-		if(m_cache_images.cache_finished())
-		{
-            m_finished.store(true);
-		}
-	}
     m_calculate_finish.store(true);
 }
 
 void thread_calc_image_clarity::process_pixel_adjustment_task(const st_task_image_data& image_data)
 {
-    //必须是第一个相机
-    //int camera_index = get_camera_index(image_data.m_camera_id);
     if (image_data.m_camera_id != m_camera_ids[0])
     {
         m_calculate_finish.store(true);
         return;
     }
-    //数据异常，不可能出现
     if (image_data.m_image.isNull())
     {
         m_calculate_finish.store(true);
         return;
     }
     cv::Mat image = convert_qimage_to_cvmat(image_data.m_image, 1);
-    //cv::Rect rect;
-    //rect.x = image.cols * 0.375;
-    //rect.y = image.cols * 0;
-    //rect.width = image.cols * 0.25;
-    //rect.height = image.rows;
-    //cv::Mat image_roi = image(rect);
-    //cv::Mat image_ovr;
-    //cv::resize(image, image_ovr, cv::Size(), m_frame_scale_size, m_frame_scale_size, cv::INTER_AREA);
-	//double clarity = calc_image_clarity_multiscale(image_ovr);
-	//double clarity = calc_image_clarity_bandpass(image, cv::Mat(), 0.3, 0.4, 2.0);
-    //std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
-	double clarity = calc_image_clarity(image);
-    //std::chrono::steady_clock::time_point end = std::chrono::high_resolution_clock::now();
-    //auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    //write_log(l(QString("calc_image_clarity use time %1  ms").arg(duration_ms.count())).c_str());
-	if (clarity > m_calc_frame_max_clarity[image_data.m_camera_id])
+    double clarity = calc_image_clarity(image);
+    if (clarity > m_calc_frame_max_clarity[image_data.m_camera_id])
     {
         m_calc_frame_max_clarity[image_data.m_camera_id] = clarity;
-		m_max_clarity_frame_index = m_frame_index;
+        m_max_clarity_frame_index = m_frame_index;
         m_max_clarity_frame = image;
-		//write_log(l(QString("New max clarity: %1 at frame %2").arg(clarity).arg(m_max_clarity_frame_index)).c_str());
     }
     m_frame_index++;
     if(m_save_cache)
@@ -634,7 +569,7 @@ bool thread_calc_image_clarity::all_finished()
 {
     if(m_total_fiber_end_count < 1)
     {
-	    return false;
+        return false;
     }
     for (int i = 0; i < m_total_fiber_end_count; i++)
     {
@@ -648,31 +583,31 @@ bool thread_calc_image_clarity::all_finished()
 
 int thread_calc_image_clarity::get_camera_index(const QString& camera_id)
 {
-	for (int i = 0;i < m_camera_ids.size();i++)
-	{
-		if(m_camera_ids[i] == camera_id)
-		{
+    for (int i = 0;i < m_camera_ids.size();i++)
+    {
+        if(m_camera_ids[i] == camera_id)
+        {
             return i;
-		}
-	}
+        }
+    }
     return -1;
 }
 
 void thread_calc_image_clarity::save_cache_images(const QString& dst_dir, QString& sub_dir)
 {
-	if (!make_path(dst_dir)) //若指定目录不存在，创建该目录
+    if (!make_path(dst_dir))
     {
-	    return;
+        return;
     }
-	sub_dir = dst_dir + L("/cache-") + QDateTime::currentDateTime().toString("yyyy-MM-dd-hh-mm-ss");
-    if (!make_path(sub_dir)) //创建日期目录
+    sub_dir = dst_dir + L("/cache-") + QDateTime::currentDateTime().toString("yyyy-MM-dd-hh-mm-ss");
+    if (!make_path(sub_dir))
     {
         return;
     }
     for (int i = 0;i < m_cache_images.m_images.size();i++)
     {
-		QString file_dir = sub_dir + QString("/%1").arg(i + 1);
-        if (!make_path(file_dir)) //创建日期目录
+        QString file_dir = sub_dir + QString("/%1").arg(i + 1);
+        if (!make_path(file_dir))
         {
             continue;
         }
@@ -703,8 +638,8 @@ bool thread_calc_image_clarity::reset_clarity_calibration(const std::vector<QStr
     }
     m_calculate_finish.store(true);
     {
-        QMutexLocker locker(&m_mutex);
-        m_task_images.clear();
+        std::lock_guard<std::mutex> locker(m_mutex);
+        while (!m_task_images.empty()) m_task_images.pop();
     }
     return true;
 }
@@ -716,12 +651,12 @@ bool thread_calc_image_clarity::reset_auto_focus(const std::vector<QString>& cam
     m_save_dir = save_dir;
     m_save_index = index;
     m_total_fiber_end_count = 0;
-	m_fiber_end_count = fiber_end_count;
+    m_fiber_end_count = fiber_end_count;
     m_max_position = 0;
     m_camera_fiber_end.clear();
     m_calc_frame_count.clear();
     m_camera_position_fail.clear();
-	m_save_cache = save_cache;
+    m_save_cache = save_cache;
     frame_id = 0;
     for (size_t i = 0; i < camera_ids.size(); i++)
     {
@@ -739,8 +674,8 @@ bool thread_calc_image_clarity::reset_auto_focus(const std::vector<QString>& cam
     m_processed_max_frame_count.store(false);
     m_calculate_finish.store(true);
     {
-        QMutexLocker locker(&m_mutex);
-        m_task_images.clear();
+        std::lock_guard<std::mutex> locker(m_mutex);
+        while (!m_task_images.empty()) m_task_images.pop();
     }
     return true;
 }
@@ -764,8 +699,8 @@ bool thread_calc_image_clarity::reset_pixel_adjustment(const std::vector<QString
     frame_count = 0;
     m_calculate_finish.store(true);
     {
-        QMutexLocker locker(&m_mutex);
-        m_task_images.clear();
+        std::lock_guard<std::mutex> locker(m_mutex);
+        while (!m_task_images.empty()) m_task_images.pop();
     }
     return true;
 }
@@ -798,7 +733,6 @@ void thread_calc_image_clarity::save_images()
 
 st_focus_image thread_calc_image_clarity::generate_focus_image_from_detect_box(const cv::Mat& image, const st_detect_box& box)
 {
-    //粗定位外扩80像素之后的结果是 box，考虑到存图需求，这里需要保存更大的影像，直接将宽高乘以 2.5
     st_detect_box new_box = box.buffer(2.5);
     new_box.m_x0 = std::max(0.0, new_box.m_x0);
     new_box.m_y0 = std::max(0.0, new_box.m_y0);
@@ -817,5 +751,5 @@ st_focus_image thread_calc_image_clarity::generate_focus_image_from_detect_box(c
     focus_image.m_focus_image = image(roi).clone();
     focus_image.m_focus_box =
         st_detect_box(0.0, offset_x0, offset_y0, offset_x1, offset_y1);
-	return focus_image;
+    return focus_image;
 }

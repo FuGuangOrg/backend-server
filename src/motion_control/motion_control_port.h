@@ -11,9 +11,6 @@
 
 #include "motion_control.h"
 
-#include <QObject>
-#include <QJsonObject>
-
 struct MOTION_CONTROL_EXPORT motion_parameter_port : public motion_parameter
 {
     motion_parameter_port(const std::string& port_name, unsigned int baud_rate):

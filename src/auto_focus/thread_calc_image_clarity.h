@@ -1,15 +1,14 @@
-﻿#pragma once
-#include <QThread>
-#include <QMutex>
-#include <QMutexLocker>
-#include <QWaitCondition>
-#include <QImage>
+#pragma once
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
 
-// TODO(fuguang-server): QMap → std::unordered_map, QQueue → moodycamel::ReaderWriterQueue
-// 当前保留 Qt 容器，因为 auto_focus 层位于 fuguang-server（Qt 允许）
-// 下一步迁移：m_camera_id: QString→std::string, m_image: QImage→cv::Mat
+// QMap/QImage/QString remain: they are part of the external API and acceptable
+// in fuguang-server (a Qt-based layer).  Threading primitives are now std::.
 #include <QMap>
-#include <QQueue>
+#include <QImage>
+#include <QString>
 
 #include "../common/common_api.h"
 #include "../basic_algorithm/object_detector.h"
@@ -88,7 +87,7 @@ struct st_cache_image
 	    }
         return true;
     }
-	
+
 };
 
 enum thread_task_type
@@ -100,14 +99,19 @@ enum thread_task_type
 };
 
 /**************************
- * 线程类,监视影像队列，执行清晰度计算
+ * 线程类，监视影像队列，执行清晰度计算
+ * Threading primitives: std::thread / std::mutex / std::condition_variable / std::queue
+ * Business-logic containers (QMap, QString, QImage) remain Qt for API compatibility.
  *****************************/
-class AUTO_FOCUS_EXPORT thread_calc_image_clarity : public QThread
+class AUTO_FOCUS_EXPORT thread_calc_image_clarity
 {
-    Q_OBJECT
 public:
+    // parent param kept for call-site compatibility; not used (no QObject base)
     thread_calc_image_clarity(const QString& name, QObject* parent = nullptr);
-    virtual ~thread_calc_image_clarity() override;
+    ~thread_calc_image_clarity();
+
+    // Start the worker thread (replaces QThread::start())
+    void start();
 
     void add_image(const QString& camera_id, const QImage& image_data);
     int task_image_count();
@@ -138,7 +142,7 @@ public:
     std::vector<int> get_focus_indexes() { return m_cache_images.m_focus_index; }
 	//保存缓存影像
     void save_cache_images(const QString& dst_dir, QString& sub_dir);
-    
+
 	int max_clarity_frame_index() const { return m_max_clarity_frame_index; }
     cv::Mat max_clarity_frame() const { return m_max_clarity_frame; }
 
@@ -154,32 +158,29 @@ public:
     const QMap<QString, double>& clarity_thresh() const { return m_clarity_thresh; }
     void set_clarity_thresh(const QMap<QString, double>& camera_claritys) { m_clarity_thresh = camera_claritys; }
     int max_position() const { return m_max_position; }
-    
+
     //保存大图
     void save_images();
     //从粗定位结果得到局部影像,用于计算清晰度或者创建缓存帧
     st_focus_image generate_focus_image_from_detect_box(const cv::Mat& image, const st_detect_box& box);
 
     std::atomic<bool> m_object_detect_fail{ false };            //粗定位失败结束
-    
+
     int max_frame_count() { return m_max_frame_count; }
     bool all_finished();                                               //是否所有区域计算完成
 	std::atomic<bool> m_finished{ false };                      //正常处理完毕结束
     std::atomic<bool>  m_processed_max_frame_count{ false };    //处理到最大帧数时结束
     std::atomic<bool> m_calculate_finish{ true };               //单次计算是否执行完成
     std::atomic<bool> m_pixel_adjustment_finished{ false };     //像素偏移计算完成
-signals:
-    void post_task_finished(const QVariant& task_data);
 
-protected:
-    void run() override;
+private:
+    void run();
 	void process_task(const st_task_image_data& image_data);
     void process_calc_image_clarity_task(const st_task_image_data& image_data);
     void process_clarity_calibration_task(const st_task_image_data& image_data);
     void process_auto_focus_task(const st_task_image_data& image_data);
     void process_pixel_adjustment_task(const st_task_image_data& image_data);
 
-private:
     /******************清晰度计算参数*******************/
     QMap<QString, double> m_clarity_thresh;
     QMap<QString, std::vector<st_detect_box>> m_camera_fiber_end;           //每个相机对应的端面,粗定位得到
@@ -190,7 +191,7 @@ private:
 	int m_save_index{ 0 };                              //一个产品可能存在多次运动对焦，当前运动次序，用于保存大图时区分不同次运动
     QMap<QString, cv::Mat> m_save_images;               //每个相机拍摄的足够清晰的大图
     int m_max_position{ 0 };                            //第一个相机端面中最大的定位位置，用于控制后续移动
-	
+
     QMap<QString, bool> m_camera_position_fail;         //每个相机粗定位是否成功，都失败时直接返回
     std::vector<st_focus_image> m_focus_images;         //检测结果，存储最清晰的局部影像
 
@@ -199,7 +200,7 @@ private:
     std::vector<double> m_focus_image_claritys;         //最清晰的局部影像的清晰度，与 m_focus_images 一一对应
     std::vector<bool> m_finished_flags;                 //每个区域的完成标识，如果计算完成后续不再计算
     int m_max_frame_count{ 120 };                       //每个端面参与计算的最大帧数，包含跳过帧，防止极端情况下陷入无限循环
-    QMap<QString, int> m_calc_frame_count;              //每个相机拍摄的影像参与计算的帧数，最大不超过 m_max_frame_count 
+    QMap<QString, int> m_calc_frame_count;              //每个相机拍摄的影像参与计算的帧数，最大不超过 m_max_frame_count
 
     QMap<QString, double> m_calc_frame_max_clarity;     //清晰度标定时使用，记录每个相机拍摄的整张影像最大清晰度
     QMap<QString, int> m_calc_frame_attenuation_times;  //清晰度标定时使用，记录整张影像清晰度无增长次数
@@ -218,13 +219,16 @@ private:
 	bool m_save_cache{ false };                                     //是否保存缓存影像(大图)
     int m_adjustment_x_min{ 0 }, m_adjustment_x_max{ 10000 };       //居中端面在影像上的允许位置范围
     /******************任务相关参数********************/
-    QQueue<st_task_image_data> m_task_images;           //任务影像，每张影像需要拆分计算清晰度
-    QMutex m_mutex;
-    QWaitCondition m_wait_condition;
-    bool m_running;                                     //运行标识
+    std::queue<st_task_image_data> m_task_images;       //任务影像队列 (std::queue, protected by m_mutex)
+    std::mutex m_mutex;
+    std::condition_variable m_wait_condition;
+    bool m_running{ false };                            //运行标识
     QString m_name;                                     //线程名称
 	thread_task_type m_task_type{ TASK_AUTO_FOCUS };    //当前任务类型
     int m_index{ 0 };                                   //调式参数，测试任务线程能否正常接收到影像
+
+    std::thread m_thread;                               //工作线程
+
 public:
     int frame_count{ 0 };
     int frame_id{ 0 };
