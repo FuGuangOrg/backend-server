@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-package:
+    name: Build and Package
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "**/vcpkg.json"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.9.2'
+          arch: 'win64_msvc2022_64'
+          cache: true
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1
+
+      - name: Build Release
+        run: |
+          msbuild fuguang-server.sln /p:Configuration=Release /p:Platform=x64 /m
+        shell: powershell
+
+      - name: Prepare deployment folder
+        run: |
+          New-Item -ItemType Directory -Path deploy -Force
+          Copy-Item x64\Release\fuguang-server.exe deploy\
+          # Copy non-Qt DLLs (OpenCV, ONNX, FAISS)
+          Copy-Item x64\Release\*.dll deploy\ -ErrorAction SilentlyContinue
+          # Copy default config
+          Copy-Item projects\fiber_end_server\config.xml deploy\
+        shell: powershell
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+        shell: powershell
+
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer-server.iss
+        shell: powershell
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: FuguangServer_${{ github.ref_name }}.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

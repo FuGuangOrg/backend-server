@@ -1,0 +1,13 @@
+{
+  "name": "fuguang-server",
+  "version": "1.0.0",
+  "dependencies": [
+    "asio",
+    "nlohmann-json",
+    "spdlog",
+    "pugixml",
+    "concurrentqueue",
+    "modbus",
+    "cli11"
+  ]
+}
