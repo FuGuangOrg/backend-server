@@ -1,0 +1,28 @@
+# Visual Studio build output
+x64/
+x86/
+Debug/
+Release/
+*.user
+.vs/
+*.suo
+*.aps
+ipch/
+*.opendb
+*.db
+*.db-shm
+*.db-wal
+
+# Qt MOC / generated files
+moc_*.cpp
+*.moc
+ui_*.h
+qrc_*.cpp
+
+# Runtime logs and temp files
+src/fiber_end_server/log/
+*.tmp
+*.bak
+
+# vcpkg build
+vcpkg_installed/

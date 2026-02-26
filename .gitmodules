@@ -1,0 +1,3 @@
+[submodule "third_party/inspection-algo"]
+	path = third_party/inspection-algo
+	url = git@github.com:FuGuangOrg/inspection-algo.git

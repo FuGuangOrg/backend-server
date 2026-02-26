@@ -1,0 +1,10 @@
+<config>
+    <light_brightness>1000000</light_brightness>
+    <move_speed>3000</move_speed>
+    <move_step_x>10</move_step_x>
+    <move_step_y>10</move_step_y>
+    <position x="11920" y="3000"/>
+    <fiber_end_count>8</fiber_end_count>
+    <auto_detect>1</auto_detect>
+    <save_path>./saveimages</save_path>
+</config>
