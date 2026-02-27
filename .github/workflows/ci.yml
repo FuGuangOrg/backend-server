@@ -37,8 +37,8 @@ jobs:
           vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
 
       - name: vcpkg integrate
-        run: ${{ env.VCPKG_ROOT }}/vcpkg integrate install
-        shell: bash
+        run: '& "$env:VCPKG_ROOT\vcpkg" integrate install'
+        shell: powershell
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
