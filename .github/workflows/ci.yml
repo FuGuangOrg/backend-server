@@ -47,6 +47,30 @@ jobs:
           arch: 'win64_msvc2022_64'
           cache: true
 
+      - name: Install Qt VS Tools (QtMsBuild integration)
+        run: |
+          $body = '{"filters":[{"criteria":[{"filterType":7,"value":"TheQtCompany.QtVisualStudioTools2022"}]}],"flags":512}'
+          $result = Invoke-RestMethod `
+            -Uri "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery?api-version=3.0-preview.1" `
+            -Method POST -Body $body `
+            -ContentType "application/json" `
+            -UseBasicParsing
+          $version = $result.results[0].extensions[0].versions[0].version
+          Write-Host "Qt VS Tools version: $version"
+
+          $vsixUrl = "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/TheQtCompany/vsextensions/QtVisualStudioTools2022/$version/vspackage"
+          Invoke-WebRequest -Uri $vsixUrl -OutFile "$env:RUNNER_TEMP\qt-vstools.vsix" -UseBasicParsing
+
+          Rename-Item "$env:RUNNER_TEMP\qt-vstools.vsix" "$env:RUNNER_TEMP\qt-vstools.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\qt-vstools.zip" -DestinationPath "$env:RUNNER_TEMP\qt-vstools" -Force
+
+          $qtmsbuild = (Get-ChildItem "$env:RUNNER_TEMP\qt-vstools" -Filter "QtMsBuild" -Recurse -Directory | Select-Object -First 1).FullName
+          if (-not $qtmsbuild) { throw "QtMsBuild directory not found in extracted VSIX" }
+
+          Write-Host "QTMSBUILD=$qtmsbuild"
+          Add-Content $env:GITHUB_ENV "QTMSBUILD=$qtmsbuild"
+        shell: powershell
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1
 
@@ -55,6 +79,8 @@ jobs:
           msbuild fuguang-server.sln `
             /p:Configuration=Release `
             /p:Platform=x64 `
+            /p:QtMsBuild="$env:QTMSBUILD" `
+            /p:Qt6_Dir="$env:Qt6_DIR" `
             /m `
             /verbosity:minimal
         shell: powershell
