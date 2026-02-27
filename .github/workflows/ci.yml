@@ -12,11 +12,16 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout main repo
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          token: ${{ secrets.ALGO_REPO_PAT }}
+          submodules: false
+
+      - name: Fetch private submodule (inspection-algo)
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.ALGO_REPO_PAT }}@github.com/".insteadOf "https://github.com/"
+          git submodule update --init --recursive
+        shell: bash
 
       - name: Export vcpkg binary cache env vars
         uses: actions/github-script@v7
