@@ -80,7 +80,7 @@ jobs:
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:QtMsBuild="$env:QTMSBUILD" `
-            /p:Qt6_Dir="$env:Qt6_DIR" `
+            /p:QtInstall="$env:Qt6_DIR" `
             /m `
             /verbosity:minimal
         shell: powershell
