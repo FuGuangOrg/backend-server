@@ -5,6 +5,10 @@
     "asio",
     "nlohmann-json",
     "spdlog",
+    {
+      "name": "opencv4",
+      "default-features": false
+    },
     "pugixml",
     "concurrentqueue",
     "modbus",
