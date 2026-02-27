@@ -1,8 +1,13 @@
-﻿#include "common.h"
+#include "common.h"
 
 #include <QDir>
 #include <QFileInfo>
 #include <QCoreApplication>
+
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <mutex>
 
 common::common()
 {
@@ -18,26 +23,47 @@ std::string l(const QString& qstr)
     return qstr.toStdString();
 }
 
+static std::shared_ptr<spdlog::logger> get_logger()
+{
+    static std::shared_ptr<spdlog::logger> s_logger;
+    static std::mutex s_mutex;
+    if (!s_logger)
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_logger)
+        {
+            try
+            {
+                QString log_dir = QCoreApplication::applicationDirPath() + "/log";
+                QDir().mkpath(log_dir);
+                std::string log_path = log_dir.toStdString() + "/fuguang.log";
+
+                auto console = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+                auto file    = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+                    log_path, 10 * 1024 * 1024, 5);
+
+                s_logger = std::make_shared<spdlog::logger>(
+                    "fuguang", spdlog::sinks_init_list{console, file});
+                s_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+                s_logger->set_level(spdlog::level::debug);
+                spdlog::register_logger(s_logger);
+            }
+            catch (const spdlog::spdlog_ex& ex)
+            {
+                fprintf(stderr, "spdlog init failed: %s\n", ex.what());
+                s_logger = spdlog::stderr_color_mt("fuguang_fallback");
+            }
+        }
+    }
+    return s_logger;
+}
+
 void write_log(const char* szInfo)
 {
     if (!OUTPUT_LOG)
-    {
         return;
-    }
-    QString current_directory = QCoreApplication::applicationDirPath();
-    QString log_directory = current_directory + "./log";
-    QDir dir(log_directory);
-    if (!dir.exists())
-    {
-        dir.mkpath(log_directory);
-    }
-    QDateTime datetime = QDateTime::currentDateTime();
-    QString qDate = datetime.toString("yyyy-MM-dd");
-    std::string sPath = l(log_directory) + "/" + l(qDate) + ".txt";
-    std::ofstream ofile(sPath.c_str(), std::ios::app);
-    QString qCurrentTime = datetime.toString("yyyy-MM-dd HH:mm:ss");
-    std::string sHeader = "[" + l(qCurrentTime) + "]";
-    ofile << sHeader << szInfo << std::endl;
+    get_logger()->info(szInfo);
+    get_logger()->flush();
 }
 
 bool make_path(const QString& dir)

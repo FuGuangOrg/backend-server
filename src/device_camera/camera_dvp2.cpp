@@ -1,7 +1,6 @@
 ﻿#include "camera_dvp2.h"
 
 #include <QFile>
-#include <QtXml/QDomDocument>
 
 #include "dvpParam.h"
 

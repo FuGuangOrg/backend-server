@@ -1,4 +1,4 @@
-﻿/****************************************************************
+/****************************************************************
  * 相机参数管理, 存储/加载所有相机参数，所有的相机以一个文件管理，不同的相机以 unique_id 区分
  * 每个相机参数对应一个 XML 节点，使用结构体存储
  * 使用方法:
@@ -8,12 +8,9 @@
  ****************************************************************/
 #pragma once
 
-#include <QFile>
 #include <QMap>
 #include <QString>
-#include <QtXml/QDomDocument>
-#include <QtXml/QDomElement>
-#include <QTextStream>
+#include <pugixml.hpp>
 
 #include "../device_camera/interface_camera.h"
 
@@ -22,26 +19,16 @@ struct st_camera_config_mgr
 	bool load_from_file(const QString& file_path)
 	{
 		m_config_file_path = file_path;
-		QFile file(file_path);
-		if (!file.exists())
+		pugi::xml_document doc;
+		pugi::xml_parse_result result = doc.load_file(file_path.toStdString().c_str());
+		if (!result)
 			return false;
-		if (!file.open(QIODevice::ReadOnly))
-			return false;
-		QDomDocument doc;
-		if (!doc.setContent(&file))
-		{
-			file.close();
-			return false;
-		}
-		file.close();
-		QDomElement root = doc.documentElement();
-		if (root.tagName() != "CameraConfigs")
+		pugi::xml_node root = doc.document_element();
+		if (std::string(root.name()) != "CameraConfigs")
 			return false;
 		m_map_camera_config.clear();
-		QDomNodeList list = root.elementsByTagName("Camera");
-		for (int i = 0; i < list.count(); i++)
+		for (pugi::xml_node elem : root.children("Camera"))
 		{
-			QDomElement elem = list.at(i).toElement();
 			st_camera_config camera_config = load_camera_config_from_node(elem);
 			if (!camera_config.unique_id.isEmpty())
 			{
@@ -53,64 +40,55 @@ struct st_camera_config_mgr
 
 	void save_to_file()
 	{
-		QDomDocument doc;
-		QDomElement root = doc.createElement("CameraConfigs");
-		doc.appendChild(root);
+		pugi::xml_document doc;
+		pugi::xml_node root = doc.append_child("CameraConfigs");
 		for (auto it = m_map_camera_config.begin(); it != m_map_camera_config.end(); ++it)
 		{
-			QDomElement elem = save_camera_config_to_node(doc, it.value());
-			root.appendChild(elem);
+			save_camera_config_to_node(root, it.value());
 		}
-		QFile file(m_config_file_path);
-		if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-			return;
-		QTextStream out(&file);
-		doc.save(out, 4);
-		file.close();
+		doc.save_file(m_config_file_path.toStdString().c_str(), "    ");
 	}
 
-	static QDomElement save_camera_config_to_node(QDomDocument& doc, const st_camera_config& camera_config)
+	// 将相机配置写入 parent，返回新建的 Camera 子节点
+	static pugi::xml_node save_camera_config_to_node(pugi::xml_node& parent, const st_camera_config& camera_config)
 	{
-		QDomElement element = doc.createElement("Camera");
-		element.setAttribute("unique_id", camera_config.unique_id);
-		element.setAttribute("frame_rate", camera_config.frame_rate);
-		element.setAttribute("start_x", camera_config.start_x);
-		element.setAttribute("start_y", camera_config.start_y);
-		element.setAttribute("width", camera_config.width);
-		element.setAttribute("height", camera_config.height);
-		element.setAttribute("pixel_format", camera_config.pixel_format);
-		element.setAttribute("auto_exposure_mode", camera_config.auto_exposure_mode);
-		element.setAttribute("auto_exposure_time_floor", camera_config.auto_exposure_time_floor);
-		element.setAttribute("auto_exposure_time_upper", camera_config.auto_exposure_time_upper);
-		element.setAttribute("exposure_time", camera_config.exposure_time);
-		element.setAttribute("auto_gain_mode", camera_config.auto_gain_mode);
-		element.setAttribute("auto_gain_floor", camera_config.auto_gain_floor);
-		element.setAttribute("auto_gain_upper", camera_config.auto_gain_upper);
-		element.setAttribute("gain", camera_config.gain);
-		//固定值不保存到文件
-		//element.setAttribute("trigger_mode", trigger_mode);
-		//element.setAttribute("trigger_source", trigger_source);
+		pugi::xml_node element = parent.append_child("Camera");
+		element.append_attribute("unique_id")                  = camera_config.unique_id.toStdString().c_str();
+		element.append_attribute("frame_rate")                 = camera_config.frame_rate;
+		element.append_attribute("start_x")                    = camera_config.start_x;
+		element.append_attribute("start_y")                    = camera_config.start_y;
+		element.append_attribute("width")                      = camera_config.width;
+		element.append_attribute("height")                     = camera_config.height;
+		element.append_attribute("pixel_format")               = camera_config.pixel_format.toStdString().c_str();
+		element.append_attribute("auto_exposure_mode")         = camera_config.auto_exposure_mode.toStdString().c_str();
+		element.append_attribute("auto_exposure_time_floor")   = camera_config.auto_exposure_time_floor;
+		element.append_attribute("auto_exposure_time_upper")   = camera_config.auto_exposure_time_upper;
+		element.append_attribute("exposure_time")              = camera_config.exposure_time;
+		element.append_attribute("auto_gain_mode")             = camera_config.auto_gain_mode.toStdString().c_str();
+		element.append_attribute("auto_gain_floor")            = camera_config.auto_gain_floor;
+		element.append_attribute("auto_gain_upper")            = camera_config.auto_gain_upper;
+		element.append_attribute("gain")                       = camera_config.gain;
 		return element;
 	}
 
-	static st_camera_config load_camera_config_from_node(const QDomElement& elem)
+	static st_camera_config load_camera_config_from_node(const pugi::xml_node& elem)
 	{
 		st_camera_config camera_config;
-		camera_config.unique_id = elem.attribute("unique_id", "");
-		camera_config.frame_rate = elem.attribute("frame_rate", "30").toDouble();
-		camera_config.start_x = elem.attribute("start_x", "0").toInt();
-		camera_config.start_y = elem.attribute("start_y", "0").toInt();
-		camera_config.width = elem.attribute("width", "1920").toInt();
-		camera_config.height = elem.attribute("height", "1080").toInt();
-		camera_config.pixel_format = elem.attribute("pixel_format", "");
-		camera_config.auto_exposure_mode = elem.attribute("auto_exposure_mode", "");
-		camera_config.auto_exposure_time_floor = elem.attribute("auto_exposure_time_floor", "1").toDouble();
-		camera_config.auto_exposure_time_upper = elem.attribute("auto_exposure_time_upper", "10000000").toDouble();
-		camera_config.exposure_time = elem.attribute("exposure_time", "20000").toDouble();
-		camera_config.auto_gain_mode = elem.attribute("auto_gain_mode", "");
-		camera_config.auto_gain_floor = elem.attribute("auto_gain_floor", "0").toDouble();
-		camera_config.auto_gain_upper = elem.attribute("auto_gain_upper", "12").toDouble();
-		camera_config.gain = elem.attribute("gain", "0").toDouble();
+		camera_config.unique_id               = QString::fromStdString(elem.attribute("unique_id").as_string(""));
+		camera_config.frame_rate              = elem.attribute("frame_rate").as_double(30.0);
+		camera_config.start_x                 = elem.attribute("start_x").as_int(0);
+		camera_config.start_y                 = elem.attribute("start_y").as_int(0);
+		camera_config.width                   = elem.attribute("width").as_int(1920);
+		camera_config.height                  = elem.attribute("height").as_int(1080);
+		camera_config.pixel_format            = QString::fromStdString(elem.attribute("pixel_format").as_string(""));
+		camera_config.auto_exposure_mode      = QString::fromStdString(elem.attribute("auto_exposure_mode").as_string(""));
+		camera_config.auto_exposure_time_floor = elem.attribute("auto_exposure_time_floor").as_double(1.0);
+		camera_config.auto_exposure_time_upper = elem.attribute("auto_exposure_time_upper").as_double(10000000.0);
+		camera_config.exposure_time           = elem.attribute("exposure_time").as_double(20000.0);
+		camera_config.auto_gain_mode          = QString::fromStdString(elem.attribute("auto_gain_mode").as_string(""));
+		camera_config.auto_gain_floor         = elem.attribute("auto_gain_floor").as_double(0.0);
+		camera_config.auto_gain_upper         = elem.attribute("auto_gain_upper").as_double(12.0);
+		camera_config.gain                    = elem.attribute("gain").as_double(0.0);
 		return camera_config;
 	}
 

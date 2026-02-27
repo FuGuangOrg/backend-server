@@ -4,6 +4,7 @@
 #include <QBuffer>
 #include <QDir>
 #include <QImage>
+#include <pugixml.hpp>
 
 #include "../common/common_api.h"
 #include "../basic_algorithm/common_api.h"
@@ -114,52 +115,45 @@ bool thread_misc::setup_fiber_end_detector()
 
 bool thread_misc::load_user_config_file(const QString& file_path)
 {
-    QFile file(file_path);
-    if (!file.open(QIODevice::ReadOnly))
+    pugi::xml_document doc;
+    pugi::xml_parse_result result = doc.load_file(file_path.toStdString().c_str());
+    if (!result)
     {
-        write_log(QString("Failed to open file for reading: %1").arg(file_path).toStdString().c_str());
-        return false;
-    }
-    QDomDocument doc;
-    if (!doc.setContent(&file))
-    {
-        file.close();
         write_log(QString("Failed to parse XML: %1").arg(file_path).toStdString().c_str());
         return false;
     }
-    file.close();
-    QDomElement root = doc.documentElement();
-    if (root.tagName() != L("user_config"))
+    pugi::xml_node root = doc.document_element();
+    if (std::string(root.name()) != "user_config")
     {
-	    return false;
+        return false;
     }
-    QDomElement camera_node = root.firstChildElement(L("Camera"));
-    if(camera_node.isNull())
+    pugi::xml_node camera_node = root.child("Camera");
+    if (!camera_node)
     {
         write_log("Load camera node failed....");
         return false;
-	}
+    }
     m_camera->import_config(st_camera_config_mgr::load_camera_config_from_node(camera_node));
-	//加载完成之后更新对应文件
-	m_camera_config_mgr.update_camera_config(m_camera->export_config());
+    //加载完成之后更新对应文件
+    m_camera_config_mgr.update_camera_config(m_camera->export_config());
     m_camera_config_mgr.save_to_file();
-	QDomElement algorithm_node = root.firstChildElement(L("algorithm_parameter"));
-    if (algorithm_node.isNull())
+    pugi::xml_node algorithm_node = root.child("algorithm_parameter");
+    if (!algorithm_node)
     {
         write_log("Load algorithm node failed....");
         return false;
     }
-	m_fiber_end_detector->algorithm_parameter()->load_from_node(algorithm_node);
+    m_fiber_end_detector->algorithm_parameter()->load_from_node(algorithm_node);
     //加载完成之后更新对应文件
     m_fiber_end_detector->algorithm_parameter()->save_to_xml();
 
-	QDomElement server_node = root.firstChildElement(L("server_parameter"));
-    if (server_node.isNull())
+    pugi::xml_node server_node = root.child("server_parameter");
+    if (!server_node)
     {
         write_log("Load server node failed....");
         return false;
     }
-	m_config_data->load_from_node(server_node);
+    m_config_data->load_from_node(server_node);
     //通知自动对焦模块
     if(m_auto_focus != nullptr)
     {
@@ -168,37 +162,26 @@ bool thread_misc::load_user_config_file(const QString& file_path)
     //加载完成之后更新对应文件
     m_config_data->save();
 
-	return true;
+    return true;
 }
 
 bool thread_misc::save_user_config_file(const QString& file_path)
 {
-    QFile file(file_path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+    pugi::xml_document doc;
+    pugi::xml_node decl = doc.prepend_child(pugi::node_declaration);
+    decl.append_attribute("version") = "1.0";
+    decl.append_attribute("encoding") = "UTF-8";
+    //相机参数、算法参数、端面检测参数保存到 XML
+    pugi::xml_node root = doc.append_child("user_config");
+    st_camera_config_mgr::save_camera_config_to_node(root, m_camera->export_config());
+    m_fiber_end_detector->algorithm_parameter()->save_to_node(root, "algorithm_parameter");
+    m_config_data->save_to_node(root, "server_parameter");
+    if (!doc.save_file(file_path.toStdString().c_str(), "    ", pugi::format_default, pugi::encoding_utf8))
     {
-        write_log("Failed to open config file for writing");
+        write_log("Failed to save user config file");
         return false;
     }
-    QDomDocument doc;
-    // 加 XML 声明
-    QDomProcessingInstruction instr = doc.createProcessingInstruction(
-        "xml", "version=\"1.0\" encoding=\"UTF-8\"");
-    doc.appendChild(instr);
-    //相机参数、算法参数、端面检测参数保存到 XML
-    QDomElement root = doc.createElement(L("user_config"));
-    doc.appendChild(root);
-    QDomElement camera_node = st_camera_config_mgr::save_camera_config_to_node(doc, m_camera->export_config());
-    root.appendChild(camera_node);
-    QDomElement algorithm_node = m_fiber_end_detector->algorithm_parameter()->save_to_node(doc,L("algorithm_parameter"));
-    root.appendChild(algorithm_node);
-    QDomElement server_node = m_config_data->save_to_node(doc,L("server_parameter"));
-    root.appendChild(server_node);
-    // 写入文件
-    QTextStream out(&file);
-    out.setEncoding(QStringConverter::Utf8);
-    doc.save(out, 4);  // 保存格式化的 XML,第二个参数表示缩进的空格数，用于控制 QDomDocument::save() 输出 XML 时的缩进格式
-    file.close();
-	return true;
+    return true;
 }
 
 void thread_misc::process_task(const QVariant& task_data)

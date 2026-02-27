@@ -1,4 +1,4 @@
-﻿/***********************************************
+/***********************************************
  * 加载端面检测配置文件，以设置相关参数.
  * 目前包括 Y轴位置列表，每张影像端面数量， 影像保存路径
  ***********************************************/
@@ -6,9 +6,9 @@
 #pragma once
 #include <vector>
 #include <string>
-#include <QDomDocument>
-#include <QFile>
-#include <QTextStream>
+#include <pugixml.hpp>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "../common/common.h"
 
@@ -36,209 +36,113 @@ struct st_config_data
 	bool load_from_file(const std::string& config_file_path)
 	{
 		m_config_file_path = config_file_path;
-		QFile file(QString::fromStdString(config_file_path));
-		if (!file.open(QIODevice::ReadOnly)) 
+		pugi::xml_document doc;
+		pugi::xml_parse_result result = doc.load_file(config_file_path.c_str());
+		if (!result)
 		{
-			write_log("Failed to load config file");
+			write_log(("Failed to load config file: " + config_file_path).c_str());
 			return false;
 		}
-		QDomDocument doc;
-		if (!doc.setContent(&file)) 
-		{
-			file.close();
-			write_log("Failed to parse XML content");
-			//qDebug() << "Failed to parse XML content";
-			return false;
-		}
-		file.close();
-		m_config_file_path = config_file_path;
-		QDomElement root = doc.documentElement();
+		pugi::xml_node root = doc.document_element();
 		load_from_node(root);
 		return true;
 	}
 
-	bool load_from_node(const QDomElement& node)
+	bool load_from_node(const pugi::xml_node& node)
 	{
-		// 光源亮度
-		QDomNode light_brightness_node = node.namedItem("light_brightness");
-		if (!light_brightness_node.isNull())
-		{
-			m_light_brightness = light_brightness_node.toElement().text().toInt();
-		}
-		// 运动速度
-		QDomNode move_speed_node = node.namedItem("move_speed");
-		if (!move_speed_node.isNull())
-		{
-			m_move_speed = move_speed_node.toElement().text().toInt();
-		}
-		// 运动范围-X
-		QDomNode max_x_node = node.namedItem("max_x");
-		if (!max_x_node.isNull())
-		{
-			m_max_x = max_x_node.toElement().text().toInt();
-		}
-		// 运动范围-Y
-		QDomNode max_y_node = node.namedItem("max_y");
-		if (!max_y_node.isNull())
-		{
-			m_max_y = max_y_node.toElement().text().toInt();
-		}
-		// 移动步长-X
-		QDomNode move_step_x_node = node.namedItem("move_step_x");
-		if (!move_step_x_node.isNull())
-		{
-			m_move_step_x = move_step_x_node.toElement().text().toInt();
-		}
-		// 移动步长-Y
-		QDomNode move_step_y_node = node.namedItem("move_step_y");
-		if (!move_step_y_node.isNull())
-		{
-			m_move_step_y = move_step_y_node.toElement().text().toInt();
-		}
-		// 拍照位置列表 (x,y)
+		if (auto n = node.child("light_brightness"))
+			m_light_brightness = n.text().as_int(m_light_brightness);
+		if (auto n = node.child("move_speed"))
+			m_move_speed = n.text().as_int(m_move_speed);
+		if (auto n = node.child("max_x"))
+			m_max_x = n.text().as_int(m_max_x);
+		if (auto n = node.child("max_y"))
+			m_max_y = n.text().as_int(m_max_y);
+		if (auto n = node.child("move_step_x"))
+			m_move_step_x = n.text().as_int(m_move_step_x);
+		if (auto n = node.child("move_step_y"))
+			m_move_step_y = n.text().as_int(m_move_step_y);
+
+		// 拍照位置列表
 		m_photo_location_list.clear();
-		QDomNodeList positions_node = node.elementsByTagName("position");
-		for (int i = 0; i < positions_node.count(); ++i)
+		for (pugi::xml_node pos : node.children("position"))
 		{
-			QDomElement elem = positions_node.at(i).toElement();
-			if (elem.hasAttribute("x") && elem.hasAttribute("y"))
-			{
-				int x = elem.attribute("x").toInt();
-				int y = elem.attribute("y").toInt();
-				m_photo_location_list.emplace_back(x, y);
-			}
+			int x = pos.attribute("x").as_int(0);
+			int y = pos.attribute("y").as_int(0);
+			m_photo_location_list.emplace_back(x, y);
 		}
-		// 端面数量
-		QDomNode count_node = node.namedItem("fiber_end_count");
-		if (!count_node.isNull())
-		{
-			m_fiber_end_count = count_node.toElement().text().toInt();
-		}
-		// 端面像素尺寸
-		QDomNode pixel_size_node = node.namedItem("fiber_end_pixel_size");
-		if (!pixel_size_node.isNull())
-		{
-			m_fiber_end_pixel_size = pixel_size_node.toElement().text().toInt();
-		}
-		// 端面物理尺寸
-		QDomNode physical_size_node = node.namedItem("fiber_end_physical_size");
-		if (!physical_size_node.isNull())
-		{
-			m_fiber_end_physical_size = physical_size_node.toElement().text().toDouble();
-		}
-		// 视野大小
-		QDomNode view_node = node.namedItem("field_of_view");
-		if (!view_node.isNull())
-		{
-			m_field_of_view = view_node.toElement().text().toDouble();
-		}
-		// 自动检测
-		QDomNode auto_detect_node = node.namedItem("auto_detect");
-		if (!auto_detect_node.isNull())
-		{
-			m_auto_detect = auto_detect_node.toElement().text().toInt();
-		}
-		// 保存路径
-		QDomNode save_path_node = node.namedItem("save_path");
-		if (!save_path_node.isNull())
-		{
-			m_save_path = save_path_node.toElement().text().toStdString();
-		}
+
+		if (auto n = node.child("fiber_end_count"))
+			m_fiber_end_count = n.text().as_int(m_fiber_end_count);
+		if (auto n = node.child("fiber_end_pixel_size"))
+			m_fiber_end_pixel_size = n.text().as_int(m_fiber_end_pixel_size);
+		if (auto n = node.child("fiber_end_physical_size"))
+			m_fiber_end_physical_size = n.text().as_double(m_fiber_end_physical_size);
+		if (auto n = node.child("field_of_view"))
+			m_field_of_view = n.text().as_double(m_field_of_view);
+		if (auto n = node.child("auto_detect"))
+			m_auto_detect = n.text().as_int(m_auto_detect);
+		if (auto n = node.child("save_path"))
+			m_save_path = n.text().as_string(m_save_path.c_str());
 		return true;
 	}
 
 	//界面上修改相关配置之后更新数据，然后保存到文件
 	void save() const
 	{
-		QFile file(QString::fromStdString(m_config_file_path));
-		if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+		pugi::xml_document doc;
+		pugi::xml_node decl = doc.prepend_child(pugi::node_declaration);
+		decl.append_attribute("version") = "1.0";
+		decl.append_attribute("encoding") = "UTF-8";
+		pugi::xml_node root = doc.append_child("config");
+		save_to_node(root);
+		if (!doc.save_file(m_config_file_path.c_str(), "    ", pugi::format_default, pugi::encoding_utf8))
 		{
-			qDebug() << "Failed to open config file for writing";
-			return;
+			write_log("Failed to save config file");
 		}
-		QDomDocument doc;
-		// 加 XML 声明
-		QDomProcessingInstruction instr = doc.createProcessingInstruction(
-			"xml", "version=\"1.0\" encoding=\"UTF-8\"");
-		doc.appendChild(instr);
-
-
-		// 创建根节点
-		QDomElement root = save_to_node(doc, L("config"));
-		doc.appendChild(root);
-
-		// 写入文件
-		QTextStream out(&file);
-		out.setEncoding(QStringConverter::Utf8);
-		doc.save(out, 4);  // 保存格式化的 XML,第二个参数表示缩进的空格数，用于控制 QDomDocument::save() 输出 XML 时的缩进格式
-		file.close();
-
-		return;
 	}
 
-	QDomElement save_to_node(QDomDocument& doc,const QString& node_name) const
+	// 将参数写入已存在的 node
+	void save_to_node(pugi::xml_node& node) const
 	{
-		QDomElement root = doc.createElement(node_name);
-		
-		// 保存 光源亮度
-		QDomElement light_brightness_node = doc.createElement("light_brightness");
-		light_brightness_node.appendChild(doc.createTextNode(QString::number(m_light_brightness)));
-		root.appendChild(light_brightness_node);
-		// 保存 运动速度
-		QDomElement move_speed_node = doc.createElement("move_speed");
-		move_speed_node.appendChild(doc.createTextNode(QString::number(m_move_speed)));
-		root.appendChild(move_speed_node);
-		// 保存 运动范围-X
-		QDomElement max_x_node = doc.createElement("max_x");
-		max_x_node.appendChild(doc.createTextNode(QString::number(m_max_x)));
-		root.appendChild(max_x_node);
-		// 保存 运动范围-Y
-		QDomElement max_y_node = doc.createElement("max_y");
-		max_y_node.appendChild(doc.createTextNode(QString::number(m_max_y)));
-		root.appendChild(max_y_node);
-		// 保存 移动步长-X
-		QDomElement move_step_x_node = doc.createElement("move_step_x");
-		move_step_x_node.appendChild(doc.createTextNode(QString::number(m_move_step_x)));
-		root.appendChild(move_step_x_node);
-		// 保存 移动步长-Y
-		QDomElement move_step_y_node = doc.createElement("move_step_y");
-		move_step_y_node.appendChild(doc.createTextNode(QString::number(m_move_step_y)));
-		root.appendChild(move_step_y_node);
-		// 保存拍照位置列表
+		auto append_int = [&](const char* tag, int value) {
+			node.append_child(tag).text().set(value);
+		};
+		auto append_double = [&](const char* tag, double value) {
+			node.append_child(tag).text().set(value);
+		};
+		auto append_str = [&](const char* tag, const char* value) {
+			node.append_child(tag).text().set(value);
+		};
+
+		append_int("light_brightness", m_light_brightness);
+		append_int("move_speed", m_move_speed);
+		append_int("max_x", m_max_x);
+		append_int("max_y", m_max_y);
+		append_int("move_step_x", m_move_step_x);
+		append_int("move_step_y", m_move_step_y);
+
 		for (const auto& pos : m_photo_location_list)
 		{
-			QDomElement pos_node = doc.createElement("position");
-			pos_node.setAttribute("x", pos.m_x);
-			pos_node.setAttribute("y", pos.m_y);
-			root.appendChild(pos_node);
+			pugi::xml_node pos_node = node.append_child("position");
+			pos_node.append_attribute("x") = pos.m_x;
+			pos_node.append_attribute("y") = pos.m_y;
 		}
-		// 保存 端面数量
-		QDomElement count_node = doc.createElement("fiber_end_count");
-		count_node.appendChild(doc.createTextNode(QString::number(m_fiber_end_count)));
-		root.appendChild(count_node);
-		// 保存 端面像素尺寸
-		QDomElement pixel_size_node = doc.createElement("fiber_end_pixel_size");
-		pixel_size_node.appendChild(doc.createTextNode(QString::number(m_fiber_end_pixel_size)));
-		root.appendChild(pixel_size_node);
-		// 保存 端面物理尺寸
-		QDomElement physical_size_node = doc.createElement("fiber_end_physical_size");
-		physical_size_node.appendChild(doc.createTextNode(QString::number(m_fiber_end_physical_size)));
-		root.appendChild(physical_size_node);
-		// 保存 视野大小
-		QDomElement view_node = doc.createElement("field_of_view");
-		view_node.appendChild(doc.createTextNode(QString::number(m_field_of_view)));
-		root.appendChild(view_node);
-		// 保存 自动检测
-		QDomElement auto_detect_node = doc.createElement("auto_detect");
-		auto_detect_node.appendChild(doc.createTextNode(QString::number(m_auto_detect)));
-		root.appendChild(auto_detect_node);
 
-		// 添加 保存路径
-		QDomElement save_path_node = doc.createElement("save_path");
-		save_path_node.appendChild(doc.createTextNode(QString::fromStdString(m_save_path)));
-		root.appendChild(save_path_node);
+		append_int("fiber_end_count", m_fiber_end_count);
+		append_int("fiber_end_pixel_size", m_fiber_end_pixel_size);
+		append_double("fiber_end_physical_size", m_fiber_end_physical_size);
+		append_double("field_of_view", m_field_of_view);
+		append_int("auto_detect", m_auto_detect);
+		append_str("save_path", m_save_path.c_str());
+	}
 
-		return root;
+	// 创建命名子节点并写入，返回该节点（供 thread_misc 组合用户配置文件时使用）
+	pugi::xml_node save_to_node(pugi::xml_node& parent, const std::string& node_name) const
+	{
+		pugi::xml_node node = parent.append_child(node_name.c_str());
+		save_to_node(node);
+		return node;
 	}
 
 	QJsonObject save_to_json() const
