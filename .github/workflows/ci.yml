@@ -90,5 +90,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fuguang-server-release
-          path: x64/Release/fuguang-server.exe
+          path: bin/Release/fiber_end_server.exe
           retention-days: 7

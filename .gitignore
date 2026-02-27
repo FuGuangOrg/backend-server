@@ -3,6 +3,13 @@ x64/
 x86/
 Debug/
 Release/
+
+# Keep pre-built external libs
+!lib/
+!lib/Release/
+!lib/Debug/
+!lib/Release/*.lib
+!lib/Debug/*.lib
 *.user
 .vs/
 *.suo
