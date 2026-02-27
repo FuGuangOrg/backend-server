@@ -15,6 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: false
+          persist-credentials: false
 
       - name: Fetch private submodule (inspection-algo)
         run: |
