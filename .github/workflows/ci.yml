@@ -85,8 +85,9 @@ jobs:
             /p:QtMsBuild="$env:QTMSBUILD" `
             /p:QtInstall="$env:Qt6_DIR" `
             /p:VcpkgEnableManifest=true `
-            /m `
-            /verbosity:minimal
+            /p:VcpkgManifestRoot="$env:GITHUB_WORKSPACE" `
+            /p:VcpkgInstalledDir="$env:GITHUB_WORKSPACE\vcpkg_installed\" `
+            /verbosity:normal
         shell: powershell
 
       - name: Upload build artifacts
