@@ -31,7 +31,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-bincache
-          key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}-84bab45d
+          key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}-84bab45d-v2
           restore-keys: vcpkg-x64-windows-
 
       - name: Setup vcpkg
@@ -44,9 +44,21 @@ jobs:
         shell: powershell
 
       - name: Install vcpkg packages
-        run: '& "$env:VCPKG_ROOT\vcpkg" install --triplet x64-windows'
+        run: '& "$env:VCPKG_ROOT\vcpkg" install --triplet x64-windows --x-install-root "$env:GITHUB_WORKSPACE\vcpkg_installed"'
         shell: powershell
         working-directory: ${{ github.workspace }}
+
+      - name: Verify opencv installed
+        run: |
+          $opencv = "$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows\include\opencv2\opencv.hpp"
+          if (Test-Path $opencv) {
+            Write-Host "opencv found: $opencv"
+          } else {
+            Write-Host "opencv NOT found; listing vcpkg_installed:"
+            Get-ChildItem "$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows\include" -ErrorAction SilentlyContinue
+            exit 1
+          }
+        shell: powershell
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
@@ -85,12 +97,11 @@ jobs:
       - name: Build Release
         run: |
           msbuild fuguang-server.sln `
+            /t:common;event_bus;motion_control `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:QtMsBuild="$env:QTMSBUILD" `
             /p:QtInstall="$env:Qt6_DIR" `
-            /p:VcpkgEnableManifest=true `
-            /p:VcpkgManifestRoot="$env:GITHUB_WORKSPACE" `
             /p:VcpkgInstalledDir="$env:GITHUB_WORKSPACE\vcpkg_installed\" `
             /verbosity:normal
         shell: powershell
@@ -100,5 +111,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fuguang-server-release
-          path: bin/Release/fiber_end_server.exe
+          path: bin/Release/*.dll
           retention-days: 7
