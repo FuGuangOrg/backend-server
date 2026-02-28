@@ -96,19 +96,55 @@ jobs:
 
       - name: Register Qt installation for QtMsBuild
         run: |
-          # Qt6_DIR points to <root>/lib/cmake/Qt6, but QtMsBuild expects <root>
-          $qtRoot = "$env:Qt6_DIR"
+          # Debug: list all Qt-related env vars
+          Write-Host "=== Qt Environment Variables ==="
+          Get-ChildItem env: | Where-Object { $_.Name -match 'qt|Qt' } | ForEach-Object { Write-Host "$($_.Name)=$($_.Value)" }
+          Write-Host "================================"
+          
+          # Try multiple env vars that install-qt-action might set
+          $qtRoot = $null
+          foreach ($varName in @("QT_ROOT_DIR", "Qt6_DIR", "Qt6_Dir", "IQTA_TOOLS")) {
+            $val = [Environment]::GetEnvironmentVariable($varName)
+            if ($val) {
+              Write-Host "Found $varName=$val"
+              $qtRoot = $val
+              break
+            }
+          }
+          
+          if (-not $qtRoot) {
+            # Fallback: search for qmake
+            $qmake = Get-ChildItem "C:\Qt" -Recurse -Filter "qmake.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($qmake) {
+              $qtRoot = $qmake.Directory.Parent.FullName
+              Write-Host "Found qmake at $($qmake.FullName), qtRoot=$qtRoot"
+            } else {
+              # Try runner temp
+              $qmake = Get-ChildItem "$env:RUNNER_WORKSPACE" -Recurse -Filter "qmake.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($qmake) {
+                $qtRoot = $qmake.Directory.Parent.FullName
+                Write-Host "Found qmake at $($qmake.FullName), qtRoot=$qtRoot"
+              }
+            }
+          }
+          
+          if (-not $qtRoot) {
+            throw "Cannot find Qt installation directory"
+          }
+          
+          # Strip lib/cmake/Qt6 suffix if present
           if ($qtRoot -match '[\\/]lib[\\/]cmake[\\/]Qt6$') {
             $qtRoot = $qtRoot -replace '[\\/]lib[\\/]cmake[\\/]Qt6$', ''
           }
+          
           $regPath = "HKCU:\Software\Digia\Versions"
           New-Item -Path $regPath -Force | Out-Null
           New-ItemProperty -Path $regPath -Name "6.9.2_msvc2022_64" -Value "$qtRoot" -Force | Out-Null
-          Write-Host "Qt6_DIR=$env:Qt6_DIR"
           Write-Host "Registered Qt 6.9.2_msvc2022_64 -> $qtRoot"
-          # Verify the path has bin/qmake.exe
+          
+          # Verify
           if (Test-Path "$qtRoot\bin\qmake.exe") {
-            Write-Host "qmake found at $qtRoot\bin\qmake.exe"
+            Write-Host "✅ qmake found at $qtRoot\bin\qmake.exe"
           } else {
             Write-Host "WARNING: qmake not found, listing qtRoot:"
             Get-ChildItem $qtRoot -Depth 1 -ErrorAction SilentlyContinue
