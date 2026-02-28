@@ -33,3 +33,8 @@ src/fiber_end_server/log/
 
 # vcpkg build
 vcpkg_installed/
+
+# CMake build output
+build/
+*/build/
+cmake-build-*/
