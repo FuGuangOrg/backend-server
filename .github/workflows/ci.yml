@@ -94,14 +94,21 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1
 
+      - name: Register Qt installation for QtMsBuild
+        run: |
+          $regPath = "HKCU:\Software\Digia\Versions"
+          New-Item -Path $regPath -Force | Out-Null
+          New-ItemProperty -Path $regPath -Name "6.9.2_msvc2022_64" -Value "$env:Qt6_DIR" -Force | Out-Null
+          Write-Host "Registered Qt 6.9.2_msvc2022_64 -> $env:Qt6_DIR"
+        shell: powershell
+
       - name: Build Release
         run: |
           msbuild fuguang-server.sln `
-            /t:common;event_bus;motion_control `
+            "/t:common;event_bus;motion_control" `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:QtMsBuild="$env:QTMSBUILD" `
-            /p:QtInstall="$env:Qt6_DIR" `
             /p:VcpkgInstalledDir="$env:GITHUB_WORKSPACE\vcpkg_installed\" `
             /verbosity:normal
         shell: powershell
