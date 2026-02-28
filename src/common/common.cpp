@@ -125,7 +125,7 @@ bool remove_files(const QString& dir, const QString& suffix)
 
 std::string utf8_to_ansi(const std::string& str)
 {
-    if (!is_utf8(str.c_str(), str.length()))
+    if (!is_utf8(str.c_str(), static_cast<int>(str.length())))
     {
         return str;
     }

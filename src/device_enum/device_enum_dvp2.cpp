@@ -33,15 +33,15 @@ std::vector<st_device_info*> device_enum_dvp2::enumerate_devices()
     {
         return device_info_list;
     }
-    if(camera_count > max_camera_count)
+    if(camera_count > static_cast<dvpUint32>(max_camera_count))
     {
-        camera_count = max_camera_count;
+        camera_count = static_cast<dvpUint32>(max_camera_count);
     }
     dvpCameraInfo camera_info;
-	
+
 	int index(0);
-	// 逐个枚举检测到的设备 
-	for (int i = 0; i < camera_count; i++)
+	// 逐个枚举检测到的设备
+	for (dvpUint32 i = 0; i < camera_count; i++)
 	{
         memset(&camera_info, 0, sizeof(dvpCameraInfo));
 		dvpStatus status = dvpEnum(i, &camera_info);

@@ -43,6 +43,11 @@ jobs:
         run: '& "$env:VCPKG_ROOT\vcpkg" integrate install'
         shell: powershell
 
+      - name: Install vcpkg packages
+        run: '& "$env:VCPKG_ROOT\vcpkg" install --triplet x64-windows'
+        shell: powershell
+        working-directory: ${{ github.workspace }}
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
