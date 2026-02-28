@@ -96,10 +96,23 @@ jobs:
 
       - name: Register Qt installation for QtMsBuild
         run: |
+          # Qt6_DIR points to <root>/lib/cmake/Qt6, but QtMsBuild expects <root>
+          $qtRoot = "$env:Qt6_DIR"
+          if ($qtRoot -match '[\\/]lib[\\/]cmake[\\/]Qt6$') {
+            $qtRoot = $qtRoot -replace '[\\/]lib[\\/]cmake[\\/]Qt6$', ''
+          }
           $regPath = "HKCU:\Software\Digia\Versions"
           New-Item -Path $regPath -Force | Out-Null
-          New-ItemProperty -Path $regPath -Name "6.9.2_msvc2022_64" -Value "$env:Qt6_DIR" -Force | Out-Null
-          Write-Host "Registered Qt 6.9.2_msvc2022_64 -> $env:Qt6_DIR"
+          New-ItemProperty -Path $regPath -Name "6.9.2_msvc2022_64" -Value "$qtRoot" -Force | Out-Null
+          Write-Host "Qt6_DIR=$env:Qt6_DIR"
+          Write-Host "Registered Qt 6.9.2_msvc2022_64 -> $qtRoot"
+          # Verify the path has bin/qmake.exe
+          if (Test-Path "$qtRoot\bin\qmake.exe") {
+            Write-Host "qmake found at $qtRoot\bin\qmake.exe"
+          } else {
+            Write-Host "WARNING: qmake not found, listing qtRoot:"
+            Get-ChildItem $qtRoot -Depth 1 -ErrorAction SilentlyContinue
+          }
         shell: powershell
 
       - name: Build Release
