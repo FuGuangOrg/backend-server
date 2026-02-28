@@ -50,12 +50,12 @@ jobs:
 
       - name: Verify opencv installed
         run: |
-          $opencv = "$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows\include\opencv2\opencv.hpp"
+          $opencv = "$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows\include\opencv4\opencv2\opencv.hpp"
           if (Test-Path $opencv) {
             Write-Host "opencv found: $opencv"
           } else {
             Write-Host "opencv NOT found; listing vcpkg_installed:"
-            Get-ChildItem "$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows\include" -ErrorAction SilentlyContinue
+            Get-ChildItem "$env:GITHUB_WORKSPACE\vcpkg_installed\x64-windows\include" -Recurse -Depth 2 -ErrorAction SilentlyContinue
             exit 1
           }
         shell: powershell
