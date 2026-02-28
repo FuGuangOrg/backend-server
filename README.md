@@ -18,20 +18,56 @@ Image delivery to client:
 - **Same machine (127.0.0.1):** shared memory (`trigger_image`, `detect_image`)
 - **Remote IP:** TCP port 5556, JPEG-compressed stream
 
-## Building (Windows)
+## Building
 
 ### Prerequisites
 
-- Visual Studio 2022 (v143 toolset)
-- Qt 6.9.2 (MSVC 2022 64-bit)
-- vcpkg with manifest mode
-- `fuguang-algo` submodule (pulled automatically)
+- C++20 compatible compiler (GCC 10+, Clang 12+, MSVC 2022+)
+- Qt 6.2+ (Core, Gui, Network, Xml components)
+- CMake 3.20+
+- vcpkg (recommended) or system package manager
 
-### Steps
+### Dependencies
+
+**Required:**
+- Qt6 (Core, Gui, Network, Xml)
+- OpenCV 4.x
+- spdlog
+
+**Optional:**
+- asio (for networking)
+- nlohmann_json (for JSON parsing)
+- pugixml (for XML parsing) 
+- CLI11 (for command line parsing)
+- libmodbus (for PLC communication)
+- ONNXRuntime (for AI inference, if `FUGUANG_ENABLE_INFERENCE=ON`)
+
+### Cross-Platform Build (CMake)
+
+```bash
+# Install dependencies via vcpkg (recommended)
+vcpkg install asio nlohmann-json spdlog opencv4 pugixml concurrentqueue libmodbus cli11
+
+# Clone with submodules
+git clone --recurse-submodules https://github.com/FuGuangOrg/backend-server.git
+cd backend-server
+
+# Configure with vcpkg toolchain
+cmake -B build \
+  -DCMAKE_TOOLCHAIN_FILE=~/vcpkg/scripts/buildsystems/vcpkg.cmake \
+  -DFUGUANG_ENABLE_INFERENCE=OFF \
+  -DCMAKE_BUILD_TYPE=Release
+
+# Build
+cmake --build build --config Release
+
+# Run
+./build/bin/fiber_end_server
+```
+
+### Windows Build (Visual Studio)
 
 ```powershell
-git clone --recurse-submodules https://github.com/FuGuangOrg/backend-server.git
-cd fuguang-server
 # Open fuguang-server.sln in Visual Studio 2022
 # Select Release | x64 and Build Solution
 ```
@@ -40,6 +76,24 @@ Or via MSBuild:
 
 ```powershell
 msbuild fuguang-server.sln /p:Configuration=Release /p:Platform=x64
+```
+
+### macOS/Linux Build
+
+```bash
+# Install dependencies via system package manager
+# Ubuntu/Debian:
+sudo apt install qtbase6-dev qtbase6-dev-tools libopencv-dev libspdlog-dev
+
+# macOS:
+brew install qt6 opencv spdlog
+
+# Configure and build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# Run
+./build/bin/fiber_end_server
 ```
 
 ## Running
