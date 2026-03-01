@@ -74,7 +74,7 @@
       <AdditionalDependencies>opencv_core4d.lib;opencv_imgproc4d.lib;basic_algorithm.lib;common.lib;device_camera.lib;onnxruntime.lib</AdditionalDependencies>
     </Link>
     <ClCompile>
-      <AdditionalIncludeDirectories>../../include;../../include/onnxruntime;$(SolutionDir)vcpkg_installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../../include;../../include/onnxruntime;$(SolutionDir)vcpkg_installed\x64-windows\include;$(SolutionDir)vcpkg_installed\x64-windows\include\opencv4;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OpenMPSupport>true</OpenMPSupport>
           <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -86,7 +86,7 @@
       <AdditionalDependencies>opencv_core4.lib;opencv_imgproc4.lib;basic_algorithm.lib;common.lib;device_camera.lib;onnxruntime.lib</AdditionalDependencies>
     </Link>
     <ClCompile>
-      <AdditionalIncludeDirectories>../../include;../../include/onnxruntime;$(SolutionDir)vcpkg_installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../../include;../../include/onnxruntime;$(SolutionDir)vcpkg_installed\x64-windows\include;$(SolutionDir)vcpkg_installed\x64-windows\include\opencv4;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OpenMPSupport>true</OpenMPSupport>
           <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
